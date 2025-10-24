@@ -308,29 +308,45 @@
                     return;
                 }
 
-                let error;
                 if (editingId) {
-                    // Update existing log
-                    const { error: updateError } = await supabaseClient
+                    // **FIXED (UPDATE):** Get the updated row back from Supabase
+                    const { data, error: updateError } = await supabaseClient
                         .from('logs')
                         .update(logData)
                         .eq('id', editingId)
-                        .eq('user_id', currentUser.id);
-                    error = updateError;
-                } else {
-                    // Add new log
-                    const { error: insertError } = await supabaseClient
-                        .from('logs')
-                        .insert(logData);
-                    error = insertError;
-                }
+                        .eq('user_id', currentUser.id)
+                        .select(); // <-- Ask for the updated row back
 
-                if (error) {
-                    showNotification(`Error saving log: ${error.message}`, true);
+                    if (updateError) {
+                        showNotification("Update log fail, contact dev", true);
+                    } else {
+                        // Manually find and replace the log in our local list
+                        const index = logs.findIndex(log => log.id == editingId);
+                        if (index > -1) logs[index] = data[0];
+                        
+                        renderTable();
+                        renderDashboard();
+                        setAddMode();
+                        showNotification("Update successful!");
+                    }
                 } else {
-                    // **FIXED:** Manually refresh the log list after a successful save.
-                    fetchLogs();
-                    setAddMode();
+                    // **FIXED (INSERT):** Get the new row back from Supabase
+                    const { data, error: insertError } = await supabaseClient
+                        .from('logs')
+                        .insert(logData)
+                        .select(); // <-- Ask for the new row back
+
+                    if (insertError) {
+                        showNotification("Add log fail, contact dev", true);
+                    } else {
+                        // Manually add the new log to our local list
+                        logs.push(data[0]);
+                        
+                        renderTable();
+                        renderDashboard();
+                        setAddMode();
+                        showNotification("Logged successful!");
+                    }
                 }
             }
 
@@ -345,9 +361,11 @@
                     if (error) {
                         showNotification(`Error deleting log: ${error.message}`, true);
                     } else {
-                        // **FIXED (Implicitly):** fetchLogs() will be called by the real-time listener.
-                        // But for robustness, we can add it here too.
-                        fetchLogs(); 
+                        // **FIXED:** Manually remove the log from our local list
+                        logs = logs.filter(log => log.id != id);
+                        renderTable();
+                        renderDashboard();
+                        showNotification("Log deleted.");
                     }
                 });
             }
@@ -390,8 +408,10 @@
                     return;
                 }
 
-                // Logs are already sorted by the fetch query
-                logs.forEach(log => {
+                // **FIXED:** We must manually sort the local list now
+                const sortedLogs = [...logs].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                sortedLogs.forEach(log => {
                     const tr = document.createElement("tr");
                     tr.className = "bg-white border-b";
                     tr.innerHTML = `
@@ -585,7 +605,11 @@
                     if (!realtimeChannel) {
                         realtimeChannel = supabaseClient.channel('public_logs')
                             .on('postgres_changes', { event: '*', schema: 'public', table: 'logs' }, payload => {
-                                fetchLogs(); // Refetch all logs on any change
+                                // **FIX:** Check if the change is relevant to the current user
+                                // This prevents re-fetching if another user makes a change
+                                if (payload.new?.user_id === currentUser.id || payload.old?.user_id === currentUser.id) {
+                                    fetchLogs(); // Refetch all logs on change
+                                }
                             })
                             .subscribe();
                     }
