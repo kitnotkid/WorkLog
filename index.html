@@ -164,9 +164,7 @@
             const supabaseUrl = 'https://vkvzaiorfyqwdiljkicv.supabase.co';
             const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrdnphaW9yZnlxd2RpbGpraWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEyMjgxNTcsImV4cCI6MjA3NjgwNDE1N30.og85B-n0_eM7IyOqGm9tn2GbSX6f3ggGB4IC-Zo5yuo';
             
-            // **FIXED:** Explicitly reference window.supabase to avoid ReferenceError
             const { createClient } = window.supabase; 
-            
             const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 
             // --- DOM Element Selectors ---
@@ -330,7 +328,8 @@
                 if (error) {
                     showNotification(`Error saving log: ${error.message}`, true);
                 } else {
-                    // No need to manually update state, real-time will catch it
+                    // **FIXED:** Manually refresh the log list after a successful save.
+                    fetchLogs();
                     setAddMode();
                 }
             }
@@ -345,8 +344,11 @@
 
                     if (error) {
                         showNotification(`Error deleting log: ${error.message}`, true);
+                    } else {
+                        // **FIXED (Implicitly):** fetchLogs() will be called by the real-time listener.
+                        // But for robustness, we can add it here too.
+                        fetchLogs(); 
                     }
-                    // Real-time will update the UI
                 });
             }
 
@@ -556,7 +558,8 @@
                         showNotification(`Error importing logs: ${error.message}`, true);
                     } else {
                         showNotification(`Import complete. ${logsToInsert.length} new logs added.`);
-                        // Real-time will update the UI
+                        // **FIXED:** Manually refresh the log list
+                        fetchLogs();
                     }
                 } else {
                     showNotification("No valid logs found in file to import.", true);
