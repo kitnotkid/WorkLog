@@ -339,54 +339,64 @@
                     return;
                 }
 
-                if (editingId) {
-                    // Update existing log - NO .select()
-                    const { error: updateError } = await supabaseClient
-                        .from('logs')
-                        .update(logData)
-                        .eq('id', editingId)
-                        .eq('user_id', currentUser.id); // No .select()
+                try { // <-- Added try block
+                    if (editingId) {
+                        console.log("Attempting to update log:", editingId, logData); // Debug log
+                        // Update existing log - NO .select()
+                        const { error: updateError } = await supabaseClient
+                            .from('logs')
+                            .update(logData)
+                            .eq('id', editingId)
+                            .eq('user_id', currentUser.id); // No .select()
 
-                    // --- Reset button regardless of outcome ---
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = "Update Log";
+                        console.log("Supabase update response:", { updateError }); // Debug log
 
-                    if (updateError) {
-                        console.error("Supabase Update Error:", updateError); // Log error for debugging
-                        showNotification("Update log fail, contact dev", true);
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = "Update Log";
+
+                        if (updateError) {
+                            console.error("Supabase Update Error:", updateError);
+                            showNotification("Update log fail, contact dev", true);
+                        } else {
+                            // --- Update local list ON SUCCESS ---
+                            const updatedLog = { ...logData, id: editingId }; 
+                            const index = logs.findIndex(log => log.id == editingId);
+                            if (index > -1) logs[index] = updatedLog;
+                            
+                            renderTable();
+                            renderDashboard();
+                            setAddMode();
+                            showNotification("Update successful!");
+                        }
                     } else {
-                        // --- Update local list ON SUCCESS ---
-                        // Create object with the known ID
-                        const updatedLog = { ...logData, id: editingId }; 
-                        const index = logs.findIndex(log => log.id == editingId);
-                        if (index > -1) logs[index] = updatedLog; // Use the data we sent
-                        
-                        renderTable();
-                        renderDashboard();
-                        setAddMode();
-                        showNotification("Update successful!");
-                    }
-                } else {
-                    // Add new log - NO .select()
-                    const { error: insertError } = await supabaseClient
-                        .from('logs')
-                        .insert(logData); // Just insert
+                        console.log("Attempting to insert log:", logData); // Debug log
+                        // Add new log - NO .select()
+                        const { error: insertError } = await supabaseClient
+                            .from('logs')
+                            .insert(logData); // Just insert
 
-                    // --- Reset button regardless of outcome ---
+                        console.log("Supabase insert response:", { insertError }); // Debug log
+
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = "Add Log";
+
+                        if (insertError) {
+                            console.error("Supabase Insert Error:", insertError);
+                            showNotification("Add log fail, contact dev", true);
+                        } else {
+                             // --- Fetch fresh data ON SUCCESS ---
+                             await fetchLogs(); 
+                             
+                             setAddMode();
+                             showNotification("Logged successful!"); 
+                        }
+                    }
+                } catch (err) { // <-- Added catch block
+                    console.error("Unexpected error during form submission:", err);
+                    showNotification("An unexpected error occurred. Contact dev.", true);
+                    // Ensure button is reset even on unexpected errors
                     submitBtn.disabled = false;
-                    submitBtn.textContent = "Add Log";
-
-                    if (insertError) {
-                        console.error("Supabase Insert Error:", insertError); // Log error for debugging
-                        showNotification("Add log fail, contact dev", true);
-                    } else {
-                         // --- Fetch fresh data ON SUCCESS ---
-                         // This is the most reliable way after an insert without .select()
-                         await fetchLogs(); 
-                         
-                         setAddMode();
-                         showNotification("Logged successful!"); 
-                    }
+                    submitBtn.textContent = editingId ? "Update Log" : "Add Log";
                 }
             }
 
