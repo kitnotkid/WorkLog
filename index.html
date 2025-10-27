@@ -348,14 +348,15 @@
                             .update(logData)
                             .eq('id', editingId)
                             .eq('user_id', currentUser.id); // No .select()
-
-                        console.log("Supabase update response:", { updateError }); // Debug log
+                        
+                        // Log the raw error object more thoroughly
+                        console.log("Supabase update response (raw error):", updateError ? JSON.stringify(updateError, null, 2) : null); 
 
                         submitBtn.disabled = false;
                         submitBtn.textContent = "Update Log";
 
                         if (updateError) {
-                            console.error("Supabase Update Error:", updateError);
+                            console.error("Supabase Update Error (structured):", updateError);
                             showNotification("Update log fail, contact dev", true);
                         } else {
                             // --- Update local list ON SUCCESS ---
@@ -370,18 +371,22 @@
                         }
                     } else {
                         console.log("Attempting to insert log:", logData); // Debug log
-                        // Add new log - NO .select()
+                        
+                        // Add more detailed logging around the insert
+                        console.log("Calling Supabase insert...");
                         const { error: insertError } = await supabaseClient
                             .from('logs')
                             .insert(logData); // Just insert
+                        console.log("Supabase insert finished."); // Will we see this?
 
-                        console.log("Supabase insert response:", { insertError }); // Debug log
+                        // Log the raw error object more thoroughly
+                        console.log("Supabase insert response (raw error):", insertError ? JSON.stringify(insertError, null, 2) : null); 
 
                         submitBtn.disabled = false;
                         submitBtn.textContent = "Add Log";
 
                         if (insertError) {
-                            console.error("Supabase Insert Error:", insertError);
+                            console.error("Supabase Insert Error (structured):", insertError);
                             showNotification("Add log fail, contact dev", true);
                         } else {
                              // --- Fetch fresh data ON SUCCESS ---
@@ -392,8 +397,9 @@
                         }
                     }
                 } catch (err) { // <-- Added catch block
-                    console.error("Unexpected error during form submission:", err);
-                    showNotification("An unexpected error occurred. Contact dev.", true);
+                    console.error("CRITICAL: Unexpected error during Supabase call:", err); // More specific catch log
+                    console.error("Error details:", JSON.stringify(err, null, 2));
+                    showNotification("An unexpected critical error occurred. Contact dev.", true);
                     // Ensure button is reset even on unexpected errors
                     submitBtn.disabled = false;
                     submitBtn.textContent = editingId ? "Update Log" : "Add Log";
