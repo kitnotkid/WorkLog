@@ -321,9 +321,7 @@
 
             async function handleFormSubmit(e) {
                 e.preventDefault();
-
-                // --- Button State Change ---
-                submitBtn.disabled = true;
+                submitBtn.disabled = true; // Disable button immediately
                 submitBtn.textContent = editingId ? "Updating..." : "Uploading...";
 
                 const logData = {
@@ -331,66 +329,67 @@
                     project: projectInput.value.trim(),
                     task: taskInput.value.trim(),
                     notes: notesInput.value.trim(),
-                    user_id: currentUser.id
+                    user_id: currentUser.id // Ensure user_id is set
                 };
                 
                 if (!logData.date || !logData.project || !logData.task) {
                     showNotification("Please fill out Date, Project, and Task Description.", true);
-                    // --- Reset button on validation fail ---
                     submitBtn.disabled = false;
                     submitBtn.textContent = editingId ? "Update Log" : "Add Log";
                     return;
                 }
 
                 if (editingId) {
-                    // Update existing log AND ask for the updated row back
-                    const { data, error: updateError } = await supabaseClient
+                    // Update existing log - NO .select()
+                    const { error: updateError } = await supabaseClient
                         .from('logs')
                         .update(logData)
                         .eq('id', editingId)
-                        .eq('user_id', currentUser.id)
-                        .select(); // <-- Ask for the updated row back
+                        .eq('user_id', currentUser.id); // No .select()
 
-                    // --- Reset button on feedback ---
+                    // --- Reset button regardless of outcome ---
                     submitBtn.disabled = false;
                     submitBtn.textContent = "Update Log";
 
                     if (updateError) {
+                        console.error("Supabase Update Error:", updateError); // Log error for debugging
                         showNotification("Update log fail, contact dev", true);
                     } else {
                         // --- Update local list ON SUCCESS ---
+                        // Create object with the known ID
+                        const updatedLog = { ...logData, id: editingId }; 
                         const index = logs.findIndex(log => log.id == editingId);
-                        if (index > -1) logs[index] = data[0];
+                        if (index > -1) logs[index] = updatedLog; // Use the data we sent
                         
                         renderTable();
                         renderDashboard();
                         setAddMode();
-                        showNotification("Update successful!"); // Uses new toast
+                        showNotification("Update successful!");
                     }
                 } else {
-                    // Add new log AND ask for the new row back
-                    const { data, error: insertError } = await supabaseClient
+                    // Add new log - NO .select()
+                    const { error: insertError } = await supabaseClient
                         .from('logs')
-                        .insert(logData)
-                        .select(); // <-- Ask for the new row back
+                        .insert(logData); // Just insert
 
-                    // --- Reset button on feedback ---
+                    // --- Reset button regardless of outcome ---
                     submitBtn.disabled = false;
                     submitBtn.textContent = "Add Log";
 
                     if (insertError) {
+                        console.error("Supabase Insert Error:", insertError); // Log error for debugging
                         showNotification("Add log fail, contact dev", true);
                     } else {
-                        // --- Update local list ON SUCCESS ---
-                        logs.push(data[0]);
-                        
-                        renderTable();
-                        renderDashboard();
-                        setAddMode();
-                        showNotification("Logged successful!"); // Uses new toast
+                         // --- Fetch fresh data ON SUCCESS ---
+                         // This is the most reliable way after an insert without .select()
+                         await fetchLogs(); 
+                         
+                         setAddMode();
+                         showNotification("Logged successful!"); 
                     }
                 }
             }
+
 
             async function handleDelete(id) {
                 showConfirm("Are you sure you want to delete this log entry?", async () => {
@@ -420,6 +419,8 @@
                 logIdInput.value = "";
                 formTitle.textContent = "Add New Log";
                 submitBtn.textContent = "Add Log";
+                 // Ensure button is enabled when form resets
+                submitBtn.disabled = false;
                 submitBtn.classList.remove('bg-yellow-500', 'hover:bg-yellow-600');
                 submitBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
                 cancelBtn.style.display = "none";
@@ -436,6 +437,8 @@
 
                 formTitle.textContent = "Edit Log Entry";
                 submitBtn.textContent = "Update Log";
+                 // Ensure button is enabled when entering edit mode
+                submitBtn.disabled = false; 
                 submitBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
                 submitBtn.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
                 cancelBtn.style.display = "block";
@@ -629,48 +632,37 @@
             }
             
             // --- Authentication & Initial Load ---
-            // onAuthStateChange fires immediately on load with the current session or null
-            // It also fires when the user logs in (from the magic link) or logs out.
-            // This single listener handles all auth state management.
             supabaseClient.auth.onAuthStateChange(async (event, session) => {
                 if (session) {
-                    // User is logged in
                     currentUser = session.user;
                     userEmail.textContent = `Logged in as: ${currentUser.email}`;
                     authSection.style.display = "none";
                     appSection.style.display = "block";
-                    
-                    // Fetch data and set up real-time
                     await fetchLogs();
                     
-                    // Set up real-time updates (if not already set up)
                     if (!realtimeChannel) {
                         realtimeChannel = supabaseClient.channel('public_logs')
                             .on('postgres_changes', { event: '*', schema: 'public', table: 'logs' }, payload => {
-                                // **FIX:** Check if the change is relevant to the current user
-                                // This prevents re-fetching if another user makes a change
                                 if (payload.new?.user_id === currentUser.id || payload.old?.user_id === currentUser.id) {
-                                    fetchLogs(); // Refetch all logs on change
+                                    // Slight delay to allow replication
+                                    setTimeout(fetchLogs, 500); 
                                 }
                             })
                             .subscribe();
                     }
-
                 } else {
-                    // User is logged out
                     currentUser = null;
                     logs = [];
                     authSection.style.display = "flex";
                     appSection.style.display = "none";
-                    renderTable(); // Clear table
-                    renderDashboard(); // Clear dashboard
+                    renderTable();
+                    renderDashboard();
                     if (realtimeChannel) {
                         supabaseClient.removeChannel(realtimeChannel);
                         realtimeChannel = null;
                     }
                 }
             });
-
 
             // --- Event Listeners Initialization ---
             logForm.addEventListener("submit", handleFormSubmit);
@@ -680,8 +672,6 @@
             fileInput.addEventListener("change", handleImport);
             
             // --- Initial Form Setup ---
-            // We just need to set the default date for the form
-            // The auth listener above handles everything else.
             setAddMode();
         });
     </script>
