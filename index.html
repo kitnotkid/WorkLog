@@ -23,9 +23,26 @@
         .modal {
             display: none;
         }
+        /* New Toast Styles */
+        #toast-notification.show {
+            display: block;
+            transform: translateX(0);
+            opacity: 1;
+        }
+        .toast-success {
+            background-color: #28a745; /* Green */
+        }
+        .toast-error {
+            background-color: #dc3545; /* Red */
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
+
+    <!-- Toast Notification -->
+    <div id="toast-notification" class="fixed top-5 right-5 z-50 p-4 rounded-md shadow-lg text-white max-w-xs" style="display: none; transform: translateX(100%); transition: transform 0.3s ease, opacity 0.3s ease; opacity: 0;">
+        <p id="toast-message"></p>
+    </div>
 
     <!-- Authentication Section (Shown when logged out) -->
     <div id="auth-section" class="min-h-screen flex items-center justify-center p-4">
@@ -135,16 +152,6 @@
         </main>
     </div>
 
-    <!-- Notification Modal -->
-    <div id="notification-modal" style="display: none;" class="modal fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div class="modal-backdrop fixed inset-0 bg-black opacity-50"></div>
-        <div class="bg-white p-6 rounded-lg shadow-lg z-10 max-w-sm w-full">
-            <h3 id="notification-title" class="text-lg font-medium text-gray-900">Notification</h3>
-            <p id="notification-message" class="mt-2 text-sm text-gray-600"></p>
-            <button id="notification-ok-btn" class="mt-4 w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">OK</button>
-        </div>
-    </div>
-
     <!-- Confirm Modal -->
     <div id="confirm-modal" style="display: none;" class="modal fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="modal-backdrop fixed inset-0 bg-black opacity-50"></div>
@@ -162,7 +169,7 @@
         document.addEventListener("DOMContentLoaded", () => {
             // --- Supabase Client Initialization ---
             const supabaseUrl = 'https://vkvzaiorfyqwdiljkicv.supabase.co';
-            const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrdnphaW9yZnlxd2RpbGpraWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEyMjgxNTcsImV4cCI6MjA3NjgwNDE1N30.og85B-n0_eM7IyOqGm9tn2GbSX6f3ggGB4IC-Zo5yuo';
+            const supabaseAnonKey = 'eyJhbGciOiJIJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrdnphaW9yZnlxd2RpbGpraWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEyMjgxNTcsImV4cCI6MjA3NjgwNDE1N30.og85B-n0_eM7IyOqGm9tn2GbSX6f3ggGB4IC-Zo5yuo';
             
             const { createClient } = window.supabase; 
             const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
@@ -195,11 +202,10 @@
             const ctx = document.getElementById('projectChart').getContext('2d');
             let projectChart;
 
-            // Modals
-            const notificationModal = document.getElementById('notification-modal');
-            const notificationTitle = document.getElementById('notification-title');
-            const notificationMessage = document.getElementById('notification-message');
-            const notificationOkBtn = document.getElementById('notification-ok-btn');
+            // Modals & Toast
+            const toast = document.getElementById('toast-notification');
+            const toastMessage = document.getElementById('toast-message');
+            let toastTimer;
             
             const confirmModal = document.getElementById('confirm-modal');
             const confirmMessage = document.getElementById('confirm-message');
@@ -213,16 +219,37 @@
             let currentUser = null;
             let realtimeChannel = null; // To hold our real-time channel
 
-            // --- Modal Functions ---
+            // --- Modal & Toast Functions ---
             function showNotification(message, isError = false) {
-                notificationTitle.textContent = isError ? 'Error' : 'Notification';
-                notificationMessage.textContent = message;
-                notificationModal.style.display = 'flex';
-            }
+                // Clear any existing timer
+                if (toastTimer) clearTimeout(toastTimer);
 
-            notificationOkBtn.addEventListener('click', () => {
-                notificationModal.style.display = 'none';
-            });
+                toastMessage.textContent = message;
+                
+                // Set color
+                toast.classList.remove('toast-success', 'toast-error', 'show');
+                if (isError) {
+                    toast.classList.add('toast-error');
+                } else {
+                    toast.classList.add('toast-success');
+                }
+                
+                // Show
+                toast.style.display = 'block';
+                // Need to trigger reflow for CSS transition
+                setTimeout(() => {
+                    toast.classList.add('show');
+                }, 10); // 10ms delay to ensure transition triggers
+
+                // Auto-hide after 3 seconds
+                toastTimer = setTimeout(() => {
+                    toast.classList.remove('show');
+                    // Wait for transition to end before hiding
+                    setTimeout(() => {
+                        toast.style.display = 'none';
+                    }, 300); // 300ms matches CSS transition time
+                }, 3000);
+            }
 
             function showConfirm(message, onConfirm) {
                 confirmMessage.textContent = message;
@@ -295,6 +322,10 @@
             async function handleFormSubmit(e) {
                 e.preventDefault();
 
+                // --- Button State Change ---
+                submitBtn.disabled = true;
+                submitBtn.textContent = editingId ? "Updating..." : "Uploading...";
+
                 const logData = {
                     date: dateInput.value,
                     project: projectInput.value.trim(),
@@ -305,11 +336,14 @@
                 
                 if (!logData.date || !logData.project || !logData.task) {
                     showNotification("Please fill out Date, Project, and Task Description.", true);
+                    // --- Reset button on validation fail ---
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = editingId ? "Update Log" : "Add Log";
                     return;
                 }
 
                 if (editingId) {
-                    // **FIXED (UPDATE):** Get the updated row back from Supabase
+                    // Update existing log AND ask for the updated row back
                     const { data, error: updateError } = await supabaseClient
                         .from('logs')
                         .update(logData)
@@ -317,35 +351,43 @@
                         .eq('user_id', currentUser.id)
                         .select(); // <-- Ask for the updated row back
 
+                    // --- Reset button on feedback ---
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = "Update Log";
+
                     if (updateError) {
                         showNotification("Update log fail, contact dev", true);
                     } else {
-                        // Manually find and replace the log in our local list
+                        // --- Update local list ON SUCCESS ---
                         const index = logs.findIndex(log => log.id == editingId);
                         if (index > -1) logs[index] = data[0];
                         
                         renderTable();
                         renderDashboard();
                         setAddMode();
-                        showNotification("Update successful!");
+                        showNotification("Update successful!"); // Uses new toast
                     }
                 } else {
-                    // **FIXED (INSERT):** Get the new row back from Supabase
+                    // Add new log AND ask for the new row back
                     const { data, error: insertError } = await supabaseClient
                         .from('logs')
                         .insert(logData)
                         .select(); // <-- Ask for the new row back
 
+                    // --- Reset button on feedback ---
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = "Add Log";
+
                     if (insertError) {
                         showNotification("Add log fail, contact dev", true);
                     } else {
-                        // Manually add the new log to our local list
+                        // --- Update local list ON SUCCESS ---
                         logs.push(data[0]);
                         
                         renderTable();
                         renderDashboard();
                         setAddMode();
-                        showNotification("Logged successful!");
+                        showNotification("Logged successful!"); // Uses new toast
                     }
                 }
             }
